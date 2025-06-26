@@ -1,8 +1,3 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
-
 package com.offline.messenger;
 
 
@@ -61,12 +56,18 @@ public class ChatFrame extends JFrame {
         sendButton.addActionListener(e -> sendMessage());
         inputField.addActionListener(e -> sendMessage());
 
-        serverThread = new ServerThread(this, SERVER_PORT);
-        serverThread.start();
+//        serverThread = new ServerThread(this, SERVER_PORT);
+//        serverThread.start();
 
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
             out = new PrintWriter(socket.getOutputStream(), true);
+            //prints username to server
+            out.println(username);
+            
+            // Start listening for incoming messages
+            new ReceiverThread(socket, this).start();
+    
         } catch (IOException ex) {
             chatArea.append("Could not connect to server: " + ex.getMessage() + "\n");
         }
@@ -82,6 +83,11 @@ public class ChatFrame extends JFrame {
             inputField.setText("");
         }
     }
+
+    public void showMessage(String message) {
+        chatArea.append(message + "\n");
+    }
+}
 
     public void showMessage(String message) {
         chatArea.append(message + "\n");

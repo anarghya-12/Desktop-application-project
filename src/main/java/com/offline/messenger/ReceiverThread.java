@@ -21,8 +21,15 @@ public class ReceiverThread extends Thread {
         ) {
             String message;
             while ((message = in.readLine()) != null) {
+                if (message.startsWith("@group:add:")) {
+                    String groupName = message.substring("@group:add:".length()).trim();
+                    chatFrame.showGroup(groupName);
+                    continue;
+                }
+
                 chatFrame.showMessage("Received: " + message);
             }
+
         } catch (IOException e) {
             chatFrame.showMessage("Receiver disconnected: " + e.getMessage());
         }

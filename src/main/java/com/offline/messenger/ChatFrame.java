@@ -11,13 +11,19 @@ import java.awt.*;
 import java.io.*;
 import java.net.*;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 
 public class ChatFrame extends JFrame {
     private JTextArea chatArea;
     private JTextField inputField;
     private JButton sendButton;
+    private JButton leaveGroupButton;
     private JComboBox<String> userSelector;
     private String username;
+    private List<String> userGroups;
+
 
     private ServerThread serverThread;
     private Socket socket;
@@ -40,24 +46,83 @@ public class ChatFrame extends JFrame {
 
         inputField = new JTextField();
         sendButton = new JButton("Send");
+        
+        //button to create groups
+        JButton createGroupButton = new JButton("Create Group");
+        
+        //button to leave a group
+        leaveGroupButton = new JButton("Leave Group");
+        leaveGroupButton.setVisible(false); // hide it by default
 
         DBHelper dbHelper = new DBHelper();
         List<String> users = dbHelper.getAllUsernamesExcept(username);
         userSelector = new JComboBox<>(users.toArray(new String[0]));
+ 
+        // Load existing groups from DB
+        userGroups = new DBHelper().getGroupsForUser(username);
+        for (String group : userGroups) {
+            userSelector.addItem(group);
+        }
+        
+        //button to view group members
+        JButton viewMembersButton = new JButton("View Members");
+        viewMembersButton.setVisible(false);
+        
+        //button to add/remove group participants
+        JButton editGroupButton = new JButton("Edit Group");
+        editGroupButton.setVisible(false);  // only visible in groups 
 
         JPanel inputPanel = new JPanel(new BorderLayout());
         inputPanel.add(inputField, BorderLayout.CENTER);
-        inputPanel.add(sendButton, BorderLayout.EAST);
+        JPanel buttonPanelTop = new JPanel(new FlowLayout());
+        buttonPanelTop.add(sendButton);
+        buttonPanelTop.add(createGroupButton);
+
+        JPanel buttonPanelBottom = new JPanel(new FlowLayout());
+        buttonPanelBottom.add(leaveGroupButton);
+        buttonPanelBottom.add(viewMembersButton);
+        buttonPanelBottom.add(editGroupButton);
+
+        JPanel buttonContainer = new JPanel(new BorderLayout());
+        buttonContainer.add(buttonPanelTop, BorderLayout.NORTH);
+        buttonContainer.add(buttonPanelBottom, BorderLayout.SOUTH);
+
+        inputPanel.add(buttonContainer, BorderLayout.EAST);
 
         add(userSelector, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
         add(inputPanel, BorderLayout.SOUTH);
 
         sendButton.addActionListener(e -> sendMessage());
+        createGroupButton.addActionListener(e -> createGroup());
+        leaveGroupButton.addActionListener(e -> leaveGroup());
         inputField.addActionListener(e -> sendMessage());
-
-//        serverThread = new ServerThread(this, SERVER_PORT);
-//        serverThread.start();
+        
+        userSelector.addActionListener(e -> {
+            String selected = (String) userSelector.getSelectedItem();
+            if (selected != null && userGroups.contains(selected)) {
+                leaveGroupButton.setVisible(true);
+                viewMembersButton.setVisible(true);
+                editGroupButton.setVisible(true);
+            } else {
+                leaveGroupButton.setVisible(false);
+                viewMembersButton.setVisible(false);
+                editGroupButton.setVisible(false);
+            }
+        });
+        
+        viewMembersButton.addActionListener(e -> {
+            String selectedGroup = (String) userSelector.getSelectedItem();
+            if (selectedGroup != null && userGroups.contains(selectedGroup)) {
+                DBHelper db = new DBHelper();
+                List<String> members = db.getGroupMembers(selectedGroup);
+                JOptionPane.showMessageDialog(this,
+                    "Members of " + selectedGroup + ":\n" + String.join(", ", members),
+                    "Group Members", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+        
+        editGroupButton.addActionListener(e -> editGroup());
 
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
@@ -83,13 +148,152 @@ public class ChatFrame extends JFrame {
             inputField.setText("");
         }
     }
+    
+    private void createGroup() {
+        String groupName = JOptionPane.showInputDialog(this, "Enter group name:");
+        if (groupName == null || groupName.trim().isEmpty()) return;
+
+        List<String> allUsers = new DBHelper().getAllUsernamesExcept(username);
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        List<JCheckBox> checkBoxes = new ArrayList<>();
+
+        for (String user : allUsers) {
+            JCheckBox cb = new JCheckBox(user);
+            checkBoxes.add(cb);
+            panel.add(cb);
+        }
+
+        JScrollPane scrollPane = new JScrollPane(panel);
+        scrollPane.setPreferredSize(new Dimension(200, 150));
+        int result = JOptionPane.showConfirmDialog(this, scrollPane, 
+                "Select users to add to group", JOptionPane.OK_CANCEL_OPTION);
+
+        if (result == JOptionPane.OK_OPTION) {
+            List<String> selectedUsers = new ArrayList<>();
+            for (JCheckBox cb : checkBoxes) {
+                if (cb.isSelected()) selectedUsers.add(cb.getText());
+            }
+            if (!selectedUsers.isEmpty()) {
+                selectedUsers.add(username); // Add the group creator
+                String members = String.join(",", selectedUsers);
+                String groupCommand = "@group:create:" + groupName + ":" + members;
+              //  out.println(username);  // required by server
+                out.println(groupCommand);
+                userSelector.addItem(groupName);
+                userGroups.add(groupName); // Update the runtime group list
+
+                // Save group to DB
+                new DBHelper().saveGroup(groupName, selectedUsers);
+                
+                for (String user : selectedUsers) {
+                    if (!user.equals(username)) { // Don't notify the creator
+                        out.println("@group:adduser:" + groupName + ":" + user);
+                    }
+                }
+                
+                chatArea.append("Group '" + groupName + "' created!\n");
+            }                                                               
+        }
+    }
 
     public void showMessage(String message) {
         chatArea.append(message + "\n");
     }
-}
+    
+    public void showGroup(String groupName) {
+        SwingUtilities.invokeLater(() -> {
+            ComboBoxModel<String> model = userSelector.getModel();
+            boolean found = false;
 
-    public void showMessage(String message) {
-        chatArea.append(message + "\n");
+            for (int i = 0; i < model.getSize(); i++) {
+                if (model.getElementAt(i).equals(groupName)) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                ((DefaultComboBoxModel<String>) userSelector.getModel()).addElement(groupName);
+                userGroups.add(groupName);
+                chatArea.append("You were added to group: " + groupName + "\n");
+            } else if (!userGroups.contains(groupName)) {
+                userGroups.add(groupName);
+                chatArea.append("You were re-added to group: " + groupName + "\n");
+            }
+        });
+    }
+
+    
+    private void leaveGroup() {
+        String selected = (String) userSelector.getSelectedItem();
+        if (selected == null || !selected.startsWith("Group:") && !new DBHelper().getGroupsForUser(username).contains(selected)) {
+            JOptionPane.showMessageDialog(this, "Please select a group to leave.");
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+            "Are you sure you want to leave group '" + selected + "'?",
+            "Confirm Leave", JOptionPane.YES_NO_OPTION);
+
+        if (confirm == JOptionPane.YES_OPTION) {
+            DBHelper db = new DBHelper();
+            if (db.removeUserFromGroup(username, selected)) {
+                userSelector.removeItem(selected);
+                chatArea.append("You left the group: " + selected + "\n");
+            } else {
+                chatArea.append("Failed to leave the group.\n");
+            }
+        }
+    }
+    
+    private void editGroup() {
+        String groupName = (String) userSelector.getSelectedItem();
+        if (groupName == null || !userGroups.contains(groupName)) return;
+
+        DBHelper db = new DBHelper();
+        List<String> allUsers = db.getAllUsernamesExcept(username);
+        List<String> currentMembers = db.getGroupMembers(groupName);
+
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        List<JCheckBox> checkBoxes = new ArrayList<>();
+
+        for (String user : allUsers) {
+            JCheckBox cb = new JCheckBox(user);
+            cb.setSelected(currentMembers.contains(user));
+            checkBoxes.add(cb);
+            panel.add(cb);
+        }
+
+        JScrollPane scrollPane = new JScrollPane(panel);
+        scrollPane.setPreferredSize(new Dimension(200, 150));
+        int result = JOptionPane.showConfirmDialog(this, scrollPane,
+                "Modify group members", JOptionPane.OK_CANCEL_OPTION);
+
+        if (result == JOptionPane.OK_OPTION) {
+            List<String> updatedMembers = new ArrayList<>();
+            for (JCheckBox cb : checkBoxes) {
+                if (cb.isSelected()) updatedMembers.add(cb.getText());
+            }
+
+            // Always keep the current user in the group
+            if (!updatedMembers.contains(username)) {
+                updatedMembers.add(username);
+            }
+
+            db.saveGroup(groupName, updatedMembers);
+            chatArea.append("Group '" + groupName + "' updated!\n");
+
+            // Broadcast to newly added members
+            Set<String> newMembers = new HashSet<>(updatedMembers);
+            newMembers.removeAll(currentMembers); // only the ones who were NOT already there
+
+            for (String newUser : newMembers) {
+                if (out != null) {
+                    out.println("@group:adduser:" + groupName + ":" + newUser);
+                }
+            }
+        }
     }
 }

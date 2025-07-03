@@ -50,6 +50,14 @@ public class ChatFrame extends JFrame {
         //button to create groups
         JButton createGroupButton = new JButton("Create Group");
         
+        //button to broadcast message
+        JButton broadcastButton = new JButton("Broadcast Message");
+        
+        //button to log out
+        JButton logoutButton = new JButton("Log Out");
+
+
+        
         //button to leave a group
         leaveGroupButton = new JButton("Leave Group");
         leaveGroupButton.setVisible(false); // hide it by default
@@ -77,7 +85,9 @@ public class ChatFrame extends JFrame {
         JPanel buttonPanelTop = new JPanel(new FlowLayout());
         buttonPanelTop.add(sendButton);
         buttonPanelTop.add(createGroupButton);
-
+        buttonPanelTop.add(broadcastButton);
+        buttonPanelTop.add(logoutButton);
+        
         JPanel buttonPanelBottom = new JPanel(new FlowLayout());
         buttonPanelBottom.add(leaveGroupButton);
         buttonPanelBottom.add(viewMembersButton);
@@ -95,8 +105,23 @@ public class ChatFrame extends JFrame {
 
         sendButton.addActionListener(e -> sendMessage());
         createGroupButton.addActionListener(e -> createGroup());
+        broadcastButton.addActionListener(e -> openBroadcastDialog());
         leaveGroupButton.addActionListener(e -> leaveGroup());
         inputField.addActionListener(e -> sendMessage());
+        
+         logoutButton.addActionListener(e -> {
+    try {
+        if (socket != null && !socket.isClosed()) {
+            socket.close();  // close socket connection
+        }
+    } catch (IOException ex) {
+        ex.printStackTrace();
+    }
+
+    this.dispose();  // close the ChatFrame
+    new LoginFrame().setVisible(true);  // show Login screen
+});
+
         
         userSelector.addActionListener(e -> {
             String selected = (String) userSelector.getSelectedItem();
@@ -123,6 +148,8 @@ public class ChatFrame extends JFrame {
         });
         
         editGroupButton.addActionListener(e -> editGroup());
+        
+        
 
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
@@ -296,4 +323,143 @@ public class ChatFrame extends JFrame {
             }
         }
     }
+    
+    
+//    private void openBroadcastDialog() {
+//    DBHelper dbHelper = new DBHelper();
+//    List<String> users = dbHelper.getAllUsernamesExcept(username);
+//
+//    JPanel panel = new JPanel(new BorderLayout());
+//    JPanel listPanel = new JPanel();
+//    listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+//
+//    List<JCheckBox> checkBoxes = new ArrayList<>();
+//    for (String user : users) 
+//    {
+//        JCheckBox checkBox = new JCheckBox(user);
+//        checkBoxes.add(checkBox);
+//        listPanel.add(checkBox);
+//    }
+//
+//    JScrollPane scrollPane = new JScrollPane(listPanel);
+//    scrollPane.setPreferredSize(new Dimension(200, 150));
+//
+//    JTextField messageField = new JTextField();
+//
+//    panel.add(new JLabel("Select users:"), BorderLayout.NORTH);
+//    panel.add(scrollPane, BorderLayout.CENTER);
+//    panel.add(messageField, BorderLayout.SOUTH);
+//
+//    int result = JOptionPane.showOptionDialog(
+//        this,
+//        panel,
+//        "Broadcast Message",
+//        JOptionPane.OK_CANCEL_OPTION,
+//        JOptionPane.PLAIN_MESSAGE,
+//        null,
+//        new Object[]{"Broadcast Now", "Cancel"},
+//        "Broadcast Now"
+//    );
+//
+//    if (result == JOptionPane.OK_OPTION) 
+//    {
+//        String message = messageField.getText().trim();
+//        if (!message.isEmpty()) 
+//        {
+//            for (JCheckBox cb : checkBoxes) 
+//            {
+//                if (cb.isSelected()) 
+//                {
+//                    String recipient = cb.getText();
+//                    String fullMessage = username + " to " + recipient + ": " + message;
+//                    out.println(fullMessage);
+//                }
+//            }
+//            chatArea.append("Broadcasted: " + message + "\n");
+//        } 
+//        else 
+//        {
+//            JOptionPane.showMessageDialog(this, "Please enter a message to broadcast.");
+//        }
+//    }
+//}
+    
+    private void openBroadcastDialog() {
+    DBHelper dbHelper = new DBHelper();
+    List<String> users = dbHelper.getAllUsernamesExcept(username);
+    List<String> groups = dbHelper.getGroupsForUser(username);
+
+    JPanel panel = new JPanel(new BorderLayout());
+
+    JPanel listPanel = new JPanel();
+    listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+
+    JLabel usersLabel = new JLabel("Select Users:");
+    listPanel.add(usersLabel);
+
+    List<JCheckBox> userCheckBoxes = new ArrayList<>();
+    for (String user : users) {
+        JCheckBox checkBox = new JCheckBox(user);
+        userCheckBoxes.add(checkBox);
+        listPanel.add(checkBox);
+    }
+
+    JLabel groupsLabel = new JLabel("Select Groups:");
+    listPanel.add(groupsLabel);
+
+    List<JCheckBox> groupCheckBoxes = new ArrayList<>();
+    for (String group : groups) {
+        JCheckBox checkBox = new JCheckBox(group);
+        groupCheckBoxes.add(checkBox);
+        listPanel.add(checkBox);
+    }
+
+    JScrollPane scrollPane = new JScrollPane(listPanel);
+    scrollPane.setPreferredSize(new Dimension(250, 200));
+
+    JTextField messageField = new JTextField();
+
+    panel.add(scrollPane, BorderLayout.CENTER);
+    panel.add(messageField, BorderLayout.SOUTH);
+
+    int result = JOptionPane.showOptionDialog(
+        this,
+        panel,
+        "Broadcast Message",
+        JOptionPane.OK_CANCEL_OPTION,
+        JOptionPane.PLAIN_MESSAGE,
+        null,
+        new Object[]{"Broadcast Now", "Cancel"},
+        "Broadcast Now"
+    );
+
+    if (result == JOptionPane.OK_OPTION) {
+        String message = messageField.getText().trim();
+        if (!message.isEmpty()) {
+            // ✅ Send to selected users
+            for (JCheckBox cb : userCheckBoxes) {
+                if (cb.isSelected()) {
+                    String recipient = cb.getText();
+                    String fullMessage = username + " to " + recipient + ": " + message;
+                    out.println(fullMessage);
+                }
+            }
+
+            // ✅ Send to selected groups
+            for (JCheckBox cb : groupCheckBoxes) {
+                if (cb.isSelected()) {
+                    String groupName = cb.getText();
+                    String fullMessage = username + " to " + groupName + ": " + message;
+                    out.println(fullMessage);  // server will route to group members
+                }
+            }
+
+            chatArea.append("Broadcasted: " + message + "\n");
+        } else {
+            JOptionPane.showMessageDialog(this, "Please enter a message to broadcast.");
+        }
+    }
+}
+
+
 }

@@ -353,8 +353,6 @@ public class ChatFrame extends JFrame {
         }
     }
 
-
-
     private void createGroup() {
         String groupName = JOptionPane.showInputDialog(this, "Enter group name:");
         if (groupName == null || groupName.trim().isEmpty()) return;
@@ -751,39 +749,71 @@ public class ChatFrame extends JFrame {
     public void setCurrentChat(String chatId) {
         this.currentChat = chatId;
         loadChatHistory(chatId);
+
+        // Check and update Delivered → Seen on chat switch
+        for (Map.Entry<String, String> entry : messageSenderMap.entrySet()) {
+            String messageId = entry.getKey();
+            String sender = entry.getValue();
+
+            if (sender.equalsIgnoreCase(chatId)) {
+                String status = currentStatusMap.get(messageId);
+                if ("Delivered".equals(status)) {
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(500); // Optional delay
+                            if (out != null) {
+                                out.writeUTF("@seen:" + messageId);
+                                out.flush();
+                                System.out.println("👁️ Seen sent for " + messageId + " on chat switch.");
+                            }
+                        } catch (IOException | InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }).start();
+                }
+            }
+        }
     }
+
+
     public String getCurrentChat() {
         return (String) userSelector.getSelectedItem();
     }
 
     public void showMessage(String senderId, String messageText, String messageId, String status) {
-        // Only add to correct chat panel — don’t auto-switch UI
-        JPanel chatPanel = userChatPanels.get(senderId);
+        // Store the bubble in chat history regardless of current view
+        ChatBubble bubble = new ChatBubble(messageText, false, messageId, status);
+        JPanel wrapper = new JPanel();
+        wrapper.setLayout(new BoxLayout(wrapper, BoxLayout.X_AXIS));
+        wrapper.setOpaque(false);
+        wrapper.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
 
-        if (chatPanel == null) {
-            chatPanel = new JPanel();
-            chatPanel.setLayout(new BoxLayout(chatPanel, BoxLayout.Y_AXIS));
-            chatPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            userChatPanels.put(senderId, chatPanel);
-            chatScrollPanes.put(senderId, new JScrollPane(chatPanel));
-        }
+        JLabel statusLabel = new JLabel(" ");  // for future status updates
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-        // Create and add the bubble
-        ChatBubble bubble = new ChatBubble(messageText, false, messageId, status);  // false → received
-        chatPanel.add(bubble);
-        chatPanel.revalidate();
-        chatPanel.repaint();
+        wrapper.add(bubble);
+        wrapper.add(statusLabel);
+        wrapper.add(Box.createHorizontalGlue());
 
-        // Scroll to bottom if current chat is same as sender
-        if (senderId.equals(currentChat)) {
-            JScrollPane scrollPane = chatScrollPanes.get(senderId);
-            if (scrollPane != null) {
-                JScrollBar vertical = scrollPane.getVerticalScrollBar();
-                vertical.setValue(vertical.getMaximum());
-            }
+        // Track it for status updates
+        statusLabelMap.put(messageId, statusLabel);
+        bubbleMap.put(messageId, bubble);
+
+        // Store in chatHistory
+        chatHistory.computeIfAbsent(senderId, k -> new ArrayList<>()).add(wrapper);
+
+        // ✅ Only show on screen if current chat matches
+        if (senderId.equals(chatWithUser)) {
+            messagePanel.add(wrapper);
+            messagePanel.revalidate();
+            messagePanel.repaint();
+
+            // Auto-scroll
+            SwingUtilities.invokeLater(() ->
+                chatScroll.getVerticalScrollBar().setValue(chatScroll.getVerticalScrollBar().getMaximum())
+            );
         }
     }
-
 
     public void showGroup(String groupName) {
         SwingUtilities.invokeLater(() -> {

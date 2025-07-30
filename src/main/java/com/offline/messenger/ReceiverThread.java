@@ -53,7 +53,7 @@ public class ReceiverThread extends Thread {
                             ? "[" + receiver + "] " + sender + ": " + body 
                             : sender + ": " + body;
 
-                        chatFrame.addMessageBubble(messageId, display, false);
+                        chatFrame.showMessage(sender, display, messageId, "Delivered");
                         chatFrame.getMessageSenderMap().put(messageId, sender);
 
                         String activeChat = chatFrame.getCurrentChat().trim().toLowerCase();
@@ -106,21 +106,19 @@ public class ReceiverThread extends Thread {
                     }
                     continue;
                 }
+                
+                if (message.startsWith("FILE_TRANSFER:")) {
+                    String[] parts = message.split(":", 4);
+                    if (parts.length == 4) {
+                        String sender = parts[1];
+                        String recipient = parts[2];
+                        String fileName = parts[3];
 
-                if (message.startsWith("@file:")) {
-                    String[] parts = message.split(":", 5);
-                    if (parts.length == 5) {
-                        String fileName = parts[1];
-                        String sender = parts[2];
-                        String recipient = parts[3];
-                        int fileSize = Integer.parseInt(parts[4]);
-
+                        int fileSize = in.readInt();
                         if (fileSize < 0 || fileSize > 100_000_000) {
-                            chatFrame.showSystemMessage("❌ Invalid or too large file size received.", false);
-                            continue;
+                            chatFrame.showSystemMessage("❌ Invalid file size.", false);
+                            return;
                         }
-
-                        chatFrame.showSystemMessage("📥 Receiving file '" + fileName + "' from " + sender + "...", false);
 
                         byte[] fileBytes = new byte[fileSize];
                         in.readFully(fileBytes);
@@ -134,16 +132,16 @@ public class ReceiverThread extends Thread {
                                 File saveFile = fileChooser.getSelectedFile();
                                 try (FileOutputStream fos = new FileOutputStream(saveFile)) {
                                     fos.write(fileBytes);
-                                    chatFrame.showSystemMessage("✅ File saved as " + saveFile.getAbsolutePath(), false);
-                                } catch (IOException ex) {
-                                    chatFrame.showSystemMessage("❌ Failed to save file: " + ex.getMessage(), false);
+                                    chatFrame.showSystemMessage("✅ File saved: " + saveFile.getAbsolutePath(), false);
+                                } catch (IOException e) {
+                                    chatFrame.showSystemMessage("❌ Failed to save file: " + e.getMessage(), false);
                                 }
                             } else {
                                 chatFrame.showSystemMessage("⚠️ File saving cancelled.", false);
                             }
                         });
                     } else {
-                        chatFrame.showSystemMessage("⚠️ Malformed file message: " + message, false);
+                        chatFrame.showSystemMessage("⚠️ Malformed FILE_TRANSFER header.", false);
                     }
                     continue;
                 }
